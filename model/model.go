@@ -1,6 +1,7 @@
 package model
 
 type Caixa struct {
+	Seq                int               `dynamodbav:"Seq,N"`
 	Dia                string            `dynamodbav:"Dia,S"`
 	DinheiroAbertura   float64           `dynamodbav:"DinheiroAbertura,N"`
 	DinheiroFechamento float64           `dynamodbav:"DinheiroFechamento,N"`
@@ -14,6 +15,7 @@ type Caixa struct {
 }
 
 type Pagamento struct {
+	Seq        int     `json:"Seq"`
 	Cliente    string  `json:"Cliente"`
 	Troco      float64 `json:"Troco"`
 	Credito    float64 `json:"Credito"`
