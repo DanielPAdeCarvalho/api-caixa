@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
+// Fechar fecha o caixa e gera um relatorio de pagamentos do dia e atualiza o caixaseq
 func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) {
 	pagamentoReport := make([]model.PagamentoReport, 0)
 	caixa := query.GetLatestCaixa(dynamoClient, log)
