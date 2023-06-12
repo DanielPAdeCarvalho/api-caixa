@@ -15,29 +15,41 @@ import (
 
 // GetCaixaByDate retorna o caixa de uma data específica
 func GetLatestMoney(dynamoClient *dynamodb.Client, log logar.Logfile, seq int) float64 {
+	seqStr := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
 		TableName:                 aws.String("Caixa"),
-		KeyConditionExpression:    aws.String("Seq = :seq"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{"seq": &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(seq))}},
+		KeyConditionExpression:    aws.String("Seq = :seqValue"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqValue": &types.AttributeValueMemberN{Value: seqStr}},
 	}
 	resp, err := dynamoClient.Query(context.TODO(), params)
 	if err != nil {
-		fmt.Println("Got error calling Query de getlatestcaiixa", err)
+		fmt.Println("Got error calling Query de GetLatestMoney", err)
+		return 0.0
 	}
-	caixa := model.Caixa{}
-	err = attributevalue.UnmarshalMap(resp.Items[0], &caixa)
-	if err != nil {
-		fmt.Printf("Failed to unmarshal Record, %v para o caixa em getlatestcaixa", err)
+
+	// Check if resp.Items is not empty
+	if len(resp.Items) > 0 {
+		caixa := model.Caixa{}
+		err = attributevalue.UnmarshalMap(resp.Items[0], &caixa)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal Record, %v para o caixa em GetLatestMoney", err)
+			return 0.0
+		}
+		return caixa.DinheiroFechamento
 	}
-	return caixa.DinheiroFechamento
+
+	fmt.Println("No items returned from Query de GetLatestMoney with seq = ", seq)
+	return 0.0
 }
 
 // GetCaixaByDate retorna o caixa de uma data específica
 func GetPagamentos(dynamoClient *dynamodb.Client, log logar.Logfile, seq int) []model.Pagamento {
+	seqStr := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
 		TableName:                 aws.String("Pagamentos"),
-		KeyConditionExpression:    aws.String("Seq = :seq"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{"seq": &types.AttributeValueMemberN{Value: *aws.String(fmt.Sprint(seq))}},
+		IndexName:                 aws.String("Seq-index"), // specify the index SEQ-index
+		KeyConditionExpression:    aws.String("Seq = :seqValue"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqValue": &types.AttributeValueMemberN{Value: seqStr}},
 	}
 
 	resp, err := dynamoClient.Query(context.TODO(), params)
@@ -107,21 +119,32 @@ func ReturnSeq(client *dynamodb.Client, log logar.Logfile) int {
 func UpdateSeq(client *dynamodb.Client, log logar.Logfile, seq int) {
 	antigo := fmt.Sprint(seq - 1)
 	novo := fmt.Sprint(seq)
-	params := &dynamodb.UpdateItemInput{
+
+	// Delete the old item
+	deleteParams := &dynamodb.DeleteItemInput{
 		TableName: aws.String("CaixaSeq"),
 		Key: map[string]types.AttributeValue{
 			"Seq": &types.AttributeValueMemberN{Value: antigo},
 		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":s": &types.AttributeValueMemberN{Value: novo},
-		},
-		UpdateExpression: aws.String("set Seq = :s"),
-		ReturnValues:     types.ReturnValueUpdatedNew,
 	}
 
-	_, err := client.UpdateItem(context.TODO(), params)
+	_, err := client.DeleteItem(context.TODO(), deleteParams)
 	if err != nil {
-		fmt.Println("Got error calling UpdateItem: ", err)
+		fmt.Println("Got error calling DeleteItem: ", err)
+		return
+	}
+
+	// Insert the new item
+	putParams := &dynamodb.PutItemInput{
+		TableName: aws.String("CaixaSeq"),
+		Item: map[string]types.AttributeValue{
+			"Seq": &types.AttributeValueMemberN{Value: novo},
+		},
+	}
+
+	_, err = client.PutItem(context.TODO(), putParams)
+	if err != nil {
+		fmt.Println("Got error calling PutItem: ", err)
 		return
 	}
 }
@@ -130,9 +153,9 @@ func GetLatestCaixa(client *dynamodb.Client, log logar.Logfile) model.Caixa {
 	seq := ReturnSeq(client, log)
 	seqSrt := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
-		TableName:                 aws.String("caixa"),
-		KeyConditionExpression:    aws.String("seq = :seq"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{"seq": &types.AttributeValueMemberN{Value: seqSrt}},
+		TableName:                 aws.String("Caixa"),
+		KeyConditionExpression:    aws.String("Seq = :seqVal"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqVal": &types.AttributeValueMemberN{Value: seqSrt}},
 	}
 
 	resp, err := client.Query(context.TODO(), params)
@@ -141,12 +164,12 @@ func GetLatestCaixa(client *dynamodb.Client, log logar.Logfile) model.Caixa {
 		return model.Caixa{}
 	}
 
-	c := model.Caixa{}
+	caixa := model.Caixa{}
 	for _, item := range resp.Items {
-		err = attributevalue.UnmarshalMap(item, &c)
+		err = attributevalue.UnmarshalMap(item, &caixa)
 		if err != nil {
 			fmt.Printf("Failed to unmarshal Record, %v", err)
 		}
 	}
-	return c
+	return caixa
 }

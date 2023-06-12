@@ -21,10 +21,10 @@ func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) {
 	dia := t.Format("2006-01-02_15:04:05")
 	caixa.Dia = dia
 
-	dinheiroAbertura := query.GetLatestMoney(dynamoClient, log, seq-1)
+	dinheiroAbertura := query.GetLatestMoney(dynamoClient, log, seq)
 	caixa.DinheiroAbertura = dinheiroAbertura
 
-	pagamentos := query.GetPagamentos(dynamoClient, log, seq)
+	pagamentos := query.GetPagamentos(dynamoClient, log, caixa.Seq)
 	DinheiroFechamento := dinheiroAbertura
 
 	// Cria o array de formas de pagamento para o pagamentoReport
@@ -32,7 +32,7 @@ func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) {
 	for _, p := range pagamentos {
 		pagamentoReport := model.PagamentoReport{
 			Cliente: p.Cliente,
-			Data:    p.Data,
+			Dia:     p.Data,
 		}
 		Valor := 0.0
 		formasPagamento := make([]string, 0)

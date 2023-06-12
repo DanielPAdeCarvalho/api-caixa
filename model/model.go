@@ -30,7 +30,7 @@ type PagamentoReport struct {
 	Cliente         string   `json:"Cliente"`
 	FormasPagamento []string `json:"FormasPagamento"`
 	Valor           float64  `json:"Valor"`
-	Data            string   `json:"Data"`
+	Dia             string   `json:"Dia"`
 }
 
 type CaixaSeq struct {
