@@ -1,6 +1,7 @@
 package model
 
 type Caixa struct {
+	Seq                int               `dynamodbav:"Seq,N"`
 	Dia                string            `dynamodbav:"Dia,S"`
 	DinheiroAbertura   float64           `dynamodbav:"DinheiroAbertura,N"`
 	DinheiroFechamento float64           `dynamodbav:"DinheiroFechamento,N"`
@@ -9,11 +10,11 @@ type Caixa struct {
 	TotalPersyCoins    float64           `dynamodbav:"TotalPersyCoins,N"`
 	TotalPicPay        float64           `dynamodbav:"TotalPicPay,N"`
 	TotalPix           float64           `dynamodbav:"TotalPix,N"`
-	DummyKey           string            `dynamodbav:"DummyKey,S"`
 	PagamentoReport    []PagamentoReport `dynamodbav:"PagamentoReport,L"`
 }
 
 type Pagamento struct {
+	Seq        int     `json:"Seq"`
 	Cliente    string  `json:"Cliente"`
 	Troco      float64 `json:"Troco"`
 	Credito    float64 `json:"Credito"`
@@ -26,8 +27,12 @@ type Pagamento struct {
 }
 
 type PagamentoReport struct {
-	Cliente         string  `json:"Cliente"`
-	FormasPagamento string  `json:"FormasPagamento"`
-	Valor           float64 `json:"Valor"`
-	Data            string  `json:"Data"`
+	Cliente         string   `json:"Cliente"`
+	FormasPagamento []string `json:"FormasPagamento"`
+	Valor           float64  `json:"Valor"`
+	Data            string   `json:"Data"`
+}
+
+type CaixaSeq struct {
+	Seq int `dynamodbav:"Seq,N"`
 }
