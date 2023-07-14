@@ -15,6 +15,7 @@ import (
 
 // GetCaixaByDate retorna o caixa de uma data específica
 func GetLatestMoney(dynamoClient *dynamodb.Client, log logar.Logfile, seq int) float64 {
+	seq--
 	seqStr := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
 		TableName:                 aws.String("Caixa"),
@@ -90,6 +91,7 @@ func InsertCaixa(dynamoClient *dynamodb.Client, log logar.Logfile, caixa model.C
 	}
 }
 
+// Retorna o sequencial do CaixaSeq
 func ReturnSeq(client *dynamodb.Client, log logar.Logfile) int {
 	proj := expression.NamesList(expression.Name("Seq"))
 	expr, err := expression.NewBuilder().WithProjection(proj).Build()
@@ -116,6 +118,7 @@ func ReturnSeq(client *dynamodb.Client, log logar.Logfile) int {
 	return seq.Seq
 }
 
+// Atualiza o squencial para o proximo numero
 func UpdateSeq(client *dynamodb.Client, log logar.Logfile, seq int) {
 	antigo := fmt.Sprint(seq)
 	novo := fmt.Sprint(seq + 1)
@@ -149,8 +152,11 @@ func UpdateSeq(client *dynamodb.Client, log logar.Logfile, seq int) {
 	}
 }
 
+// Retorna o ultimo caixa cadastrado em Caixa
 func GetLatestCaixa(client *dynamodb.Client, log logar.Logfile) model.Caixa {
 	seq := ReturnSeq(client, log)
+	seq--
+	fmt.Println("seq = ", seq)
 	seqSrt := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
 		TableName:                 aws.String("Caixa"),
