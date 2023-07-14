@@ -4,75 +4,172 @@ import (
 	"api-caixa/logar"
 	"api-caixa/model"
 	"context"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 // GetCaixaByDate retorna o caixa de uma data específica
-func GetLatestCaixa(dynamoClient *dynamodb.Client, log logar.Logfile) model.Caixa {
+func GetLatestMoney(dynamoClient *dynamodb.Client, log logar.Logfile, seq int) float64 {
+	seqStr := fmt.Sprint(seq)
 	params := &dynamodb.QueryInput{
-		TableName:              aws.String("Caixa"),
-		IndexName:              aws.String("DummyIndex"),
-		KeyConditionExpression: aws.String("DummyKey = :v1"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":v1": &types.AttributeValueMemberS{Value: "1"},
-		},
-		ScanIndexForward: aws.Bool(false),
-		Limit:            aws.Int32(1),
+		TableName:                 aws.String("Caixa"),
+		KeyConditionExpression:    aws.String("Seq = :seqValue"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqValue": &types.AttributeValueMemberN{Value: seqStr}},
 	}
-	output, err := dynamoClient.Query(context.Background(), params)
-	logar.Check(err, log)
+	resp, err := dynamoClient.Query(context.TODO(), params)
+	if err != nil {
+		fmt.Println("Got error calling Query de GetLatestMoney", err)
+		return 0.0
+	}
 
-	caixa := model.Caixa{}
-	err = attributevalue.UnmarshalMap(output.Items[0], &caixa)
-	logar.Check(err, log)
+	// Check if resp.Items is not empty
+	if len(resp.Items) > 0 {
+		caixa := model.Caixa{}
+		err = attributevalue.UnmarshalMap(resp.Items[0], &caixa)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal Record, %v para o caixa em GetLatestMoney", err)
+			return 0.0
+		}
+		return caixa.DinheiroFechamento
+	}
 
-	return caixa
+	fmt.Println("No items returned from Query de GetLatestMoney with seq = ", seq)
+	return 0.0
 }
 
 // GetCaixaByDate retorna o caixa de uma data específica
-func GetPagamentosAfterDate(dynamoClient *dynamodb.Client, log logar.Logfile, periodo string) []model.Pagamento {
-	params := &dynamodb.ScanInput{
-		TableName:        aws.String("Pagamentos"),
-		FilterExpression: aws.String("#data > :periodo"),
-		ExpressionAttributeNames: map[string]string{
-			"#data": "Data",
-		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":periodo": &types.AttributeValueMemberS{Value: periodo},
-		},
-		ProjectionExpression: aws.String("Cliente, Troco, Credito, Debito, Dinheiro, PicPay, Pix, Persycoins, #data, Pedidos"),
+func GetPagamentos(dynamoClient *dynamodb.Client, log logar.Logfile, seq int) []model.Pagamento {
+	seqStr := fmt.Sprint(seq)
+	params := &dynamodb.QueryInput{
+		TableName:                 aws.String("Pagamentos"),
+		IndexName:                 aws.String("Seq-index"), // specify the index SEQ-index
+		KeyConditionExpression:    aws.String("Seq = :seqValue"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqValue": &types.AttributeValueMemberN{Value: seqStr}},
 	}
-	paginator := dynamodb.NewScanPaginator(dynamoClient, params)
 
-	var pagamentos []model.Pagamento
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(context.Background())
-		logar.Check(err, log)
+	resp, err := dynamoClient.Query(context.TODO(), params)
+	if err != nil {
+		fmt.Println("Got error calling Query de getpagamentos", err)
+		return nil
+	}
 
-		for _, item := range output.Items {
-			pagamento := model.Pagamento{}
-			err := attributevalue.UnmarshalMap(item, &pagamento)
-			logar.Check(err, log)
-			pagamentos = append(pagamentos, pagamento)
+	pagamentos := make([]model.Pagamento, 0)
+	for _, item := range resp.Items {
+		p := model.Pagamento{}
+		err = attributevalue.UnmarshalMap(item, &p)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal Record, %v para o array de pagamentos", err)
 		}
+		pagamentos = append(pagamentos, p)
 	}
 	return pagamentos
 }
 
 // InsertCaixa insere um novo caixa no banco de dados
 func InsertCaixa(dynamoClient *dynamodb.Client, log logar.Logfile, caixa model.Caixa) {
-	caixa.DummyKey = "1"
 	av, err := attributevalue.MarshalMap(caixa)
-	logar.Check(err, log)
+	if err != nil {
+		fmt.Println("Got error marshalling new caixa item:", err)
+		return
+	}
 
-	params := &dynamodb.PutItemInput{
+	input := &dynamodb.PutItemInput{
 		Item:      av,
 		TableName: aws.String("Caixa"),
 	}
-	_, err = dynamoClient.PutItem(context.Background(), params)
+
+	_, err = dynamoClient.PutItem(context.Background(), input)
+	if err != nil {
+		fmt.Println("Got error calling PutItem para insertcaixa", err)
+		return
+	}
+}
+
+func ReturnSeq(client *dynamodb.Client, log logar.Logfile) int {
+	proj := expression.NamesList(expression.Name("Seq"))
+	expr, err := expression.NewBuilder().WithProjection(proj).Build()
 	logar.Check(err, log)
+
+	input := &dynamodb.ScanInput{
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		ProjectionExpression:      expr.Projection(),
+		TableName:                 aws.String("CaixaSeq"),
+	}
+
+	page, err := client.Scan(context.Background(), input)
+	logar.Check(err, log)
+
+	if len(page.Items) == 0 {
+		return 0
+	}
+
+	var seq model.CaixaSeq
+	err = attributevalue.UnmarshalMap(page.Items[0], &seq)
+	logar.Check(err, log)
+
+	return seq.Seq
+}
+
+func UpdateSeq(client *dynamodb.Client, log logar.Logfile, seq int) {
+	antigo := fmt.Sprint(seq)
+	novo := fmt.Sprint(seq + 1)
+
+	// Delete the old item
+	deleteParams := &dynamodb.DeleteItemInput{
+		TableName: aws.String("CaixaSeq"),
+		Key: map[string]types.AttributeValue{
+			"Seq": &types.AttributeValueMemberN{Value: antigo},
+		},
+	}
+
+	_, err := client.DeleteItem(context.TODO(), deleteParams)
+	if err != nil {
+		fmt.Println("Got error calling DeleteItem: ", err)
+		return
+	}
+
+	// Insert the new item
+	putParams := &dynamodb.PutItemInput{
+		TableName: aws.String("CaixaSeq"),
+		Item: map[string]types.AttributeValue{
+			"Seq": &types.AttributeValueMemberN{Value: novo},
+		},
+	}
+
+	_, err = client.PutItem(context.TODO(), putParams)
+	if err != nil {
+		fmt.Println("Got error calling PutItem: ", err)
+		return
+	}
+}
+
+func GetLatestCaixa(client *dynamodb.Client, log logar.Logfile) model.Caixa {
+	seq := ReturnSeq(client, log)
+	seqSrt := fmt.Sprint(seq)
+	params := &dynamodb.QueryInput{
+		TableName:                 aws.String("Caixa"),
+		KeyConditionExpression:    aws.String("Seq = :seqVal"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":seqVal": &types.AttributeValueMemberN{Value: seqSrt}},
+	}
+
+	resp, err := client.Query(context.TODO(), params)
+	if err != nil {
+		fmt.Println("Got error calling Query: ", err)
+		return model.Caixa{}
+	}
+
+	caixa := model.Caixa{}
+	for _, item := range resp.Items {
+		err = attributevalue.UnmarshalMap(item, &caixa)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal Record, %v", err)
+		}
+	}
+	return caixa
 }

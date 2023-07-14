@@ -4,69 +4,90 @@ import (
 	"api-caixa/database/query"
 	"api-caixa/logar"
 	"api-caixa/model"
-	"api-caixa/utils"
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
-func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) []model.PagamentoReport {
-	pagamentoReport := make([]model.PagamentoReport, 0)
-	caixa := query.GetLatestCaixa(dynamoClient, log)
-	pagamentos := query.GetPagamentosAfterDate(dynamoClient, log, caixa.Dia)
-	caixaNovo := model.Caixa{
-		Dia:              time.Now().Format("2006-01-02_15:04:05"),
-		DinheiroAbertura: caixa.DinheiroFechamento,
-	}
-	var TotalDebito float64
-	var TotalPersyCoins float64
-	var TotalPicPay float64
-	var TotalPix float64
-	var TotalCredito float64
-	TotalDinheiro := caixa.DinheiroAbertura
-	for _, pagamento := range pagamentos {
-		formaPagamento := ""
-		valor := 0.0
-		if pagamento.Debito > 0 {
-			TotalDebito += pagamento.Debito
-			valor += pagamento.Debito
-			formaPagamento += "Debito : " + utils.FormatCurrency(pagamento.Debito)
-		} else if pagamento.PersyCoins > 0 {
-			TotalPersyCoins += pagamento.PersyCoins
-			valor += pagamento.PersyCoins
-			formaPagamento = "PersyCoins " + utils.FormatCurrency(pagamento.PersyCoins)
-		} else if pagamento.PicPay > 0 {
-			TotalPicPay += pagamento.PicPay
-			valor += pagamento.PicPay
-			formaPagamento = "PicPay " + utils.FormatCurrency(pagamento.PicPay)
-		} else if pagamento.Pix > 0 {
-			TotalPix += pagamento.Pix
-			valor += pagamento.Pix
-			formaPagamento = "Pix " + utils.FormatCurrency(pagamento.Pix)
-		} else if pagamento.Credito > 0 {
-			TotalCredito += pagamento.Credito
-			valor += pagamento.Credito
-			formaPagamento = "Credito " + utils.FormatCurrency(pagamento.Credito)
-		} else if pagamento.Dinheiro > 0 {
-			TotalDinheiro += pagamento.Dinheiro
-			valor += pagamento.Dinheiro
-			formaPagamento = "Dinheiro " + utils.FormatCurrency(pagamento.Dinheiro)
-		}
-		pagamentoReport = append(pagamentoReport, model.PagamentoReport{
-			Cliente:         pagamento.Cliente,
-			FormasPagamento: formaPagamento,
-			Valor:           pagamento.Dinheiro,
-			Data:            pagamento.Data,
-		})
-	}
-	caixaNovo.TotalDebito = TotalDebito
-	caixaNovo.TotalPersyCoins = TotalPersyCoins
-	caixaNovo.TotalPicPay = TotalPicPay
-	caixaNovo.TotalPix = TotalPix
-	caixaNovo.TotalCredito = TotalCredito
-	caixaNovo.DinheiroFechamento = TotalDinheiro
-	caixaNovo.PagamentoReport = pagamentoReport
-	query.InsertCaixa(dynamoClient, log, caixaNovo)
+// Fechar fecha o caixa e gera um relatorio de pagamentos do dia e atualiza o caixaseq
+func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) {
+	caixa := model.Caixa{}
 
-	return pagamentoReport
+	seq := query.ReturnSeq(dynamoClient, log)
+	//Caixa.seq nao pode ser incrementado aqui senao nao vai conseguir pegar os pagamentos relativos ao caixa atual
+	caixa.Seq = seq
+
+	t := time.Now()
+	dia := t.Format("2006-01-02_15:04:05")
+	caixa.Dia = dia
+
+	dinheiroAbertura := query.GetLatestMoney(dynamoClient, log, seq)
+	caixa.DinheiroAbertura = dinheiroAbertura
+
+	pagamentos := query.GetPagamentos(dynamoClient, log, caixa.Seq)
+	DinheiroFechamento := dinheiroAbertura
+
+	// Cria o array de formas de pagamento para o pagamentoReport
+	pagamentoReportS := make([]model.PagamentoReport, 0)
+	for _, p := range pagamentos {
+		pagamentoReport := model.PagamentoReport{
+			Cliente: p.Cliente,
+			Dia:     p.Data,
+		}
+		Valor := 0.0
+		formasPagamento := make([]string, 0)
+		if p.Credito > 0 {
+			Valor += p.Credito
+			creditStr := fmt.Sprintf("%.2f", p.Credito) // convert float64 to string with 2 decimal points
+			result := "Credito: " + creditStr
+			formasPagamento = append(formasPagamento, result)
+			caixa.TotalCredito += p.Credito
+		}
+		if p.Debito > 0 {
+			Valor += p.Debito
+			debitStr := fmt.Sprintf("%.2f", p.Debito) // convert float64 to string with 2 decimal points
+			result := "Debito: " + debitStr
+			formasPagamento = append(formasPagamento, result)
+			caixa.TotalDebito += p.Debito
+		}
+		if p.Dinheiro > 0 {
+			Valor += p.Dinheiro
+			dinheiroStr := fmt.Sprintf("%.2f", p.Dinheiro) // convert float64 to string with 2 decimal points
+			result := "Dinheiro: " + dinheiroStr
+			formasPagamento = append(formasPagamento, result)
+			DinheiroFechamento += p.Dinheiro
+		}
+		if p.PicPay > 0 {
+			Valor += p.PicPay
+			picpayStr := fmt.Sprintf("%.2f", p.PicPay) // convert float64 to string with 2 decimal points
+			result := "PicPay: " + picpayStr
+			formasPagamento = append(formasPagamento, result)
+			caixa.TotalPicPay += p.PicPay
+		}
+		if p.Pix > 0 {
+			Valor += p.Pix
+			pixStr := fmt.Sprintf("%.2f", p.Pix) // convert float64 to string with 2 decimal points
+			result := "Pix: " + pixStr
+			formasPagamento = append(formasPagamento, result)
+			caixa.TotalPix += p.Pix
+		}
+		if p.PersyCoins > 0 {
+			Valor += p.PersyCoins
+			persycoinsStr := fmt.Sprintf("%.2f", p.PersyCoins) // convert float64 to string with 2 decimal points
+			result := "PersyCoins: " + persycoinsStr
+			formasPagamento = append(formasPagamento, result)
+			caixa.TotalPersyCoins += p.PersyCoins
+		}
+		if p.Troco > 0 {
+			DinheiroFechamento -= p.Troco
+		}
+		pagamentoReport.Valor = Valor
+		pagamentoReport.FormasPagamento = formasPagamento
+		pagamentoReportS = append(pagamentoReportS, pagamentoReport)
+	}
+	caixa.DinheiroFechamento = DinheiroFechamento
+	caixa.PagamentoReport = pagamentoReportS
+	query.InsertCaixa(dynamoClient, log, caixa)
+	query.UpdateSeq(dynamoClient, log, caixa.Seq)
 }
