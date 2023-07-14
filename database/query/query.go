@@ -117,8 +117,8 @@ func ReturnSeq(client *dynamodb.Client, log logar.Logfile) int {
 }
 
 func UpdateSeq(client *dynamodb.Client, log logar.Logfile, seq int) {
-	antigo := fmt.Sprint(seq - 1)
-	novo := fmt.Sprint(seq)
+	antigo := fmt.Sprint(seq)
+	novo := fmt.Sprint(seq + 1)
 
 	// Delete the old item
 	deleteParams := &dynamodb.DeleteItemInput{

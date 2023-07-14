@@ -15,7 +15,8 @@ func Fechar(dynamoClient *dynamodb.Client, log logar.Logfile) {
 	caixa := model.Caixa{}
 
 	seq := query.ReturnSeq(dynamoClient, log)
-	caixa.Seq = seq + 1 // Incrementa o caixaSeq
+	//Caixa.seq nao pode ser incrementado aqui senao nao vai conseguir pegar os pagamentos relativos ao caixa atual
+	caixa.Seq = seq
 
 	t := time.Now()
 	dia := t.Format("2006-01-02_15:04:05")
